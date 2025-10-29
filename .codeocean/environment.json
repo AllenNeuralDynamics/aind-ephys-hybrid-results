@@ -3,7 +3,8 @@
 	"base_image": "codeocean/mambaforge3:24.5.0-0-python3.12.4-ubuntu22.04",
 	"options": {
 		"registry_host_arg": true,
-		"git_ask_pass": true
+		"git_ask_pass": true,
+		"mount_secrets": true
 	},
 	"installers": {
 		"conda": {
@@ -16,6 +17,10 @@
 		},
 		"pip": {
 			"packages": [
+				{
+					"name": "aind-data-access-api",
+					"version": "1.4.0"
+				},
 				{
 					"name": "ipympl",
 					"version": "0.9.7"

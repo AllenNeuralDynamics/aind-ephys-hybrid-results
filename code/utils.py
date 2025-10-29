@@ -1,8 +1,10 @@
+import re
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from scipy import stats
 import matplotlib.pyplot as plt
+from datetime import datetime
 from itertools import combinations
 from functools import reduce
 
@@ -319,3 +321,131 @@ def stat_test(df, column_group_by, test_columns, sig=0.01, paired=False, verbose
         results[metric]["parametric"] = parametric
         
     return results
+
+
+### Pipeline stats ###
+def get_all_ecephys_derived(docdb_client):
+    """Get a limited set of all records from the database.
+
+    Returns
+    -------
+    list[dict]
+        List of records, limited to 50 entries.
+    """
+    filter_query = {"data_description.modality.abbreviation": "ecephys", "data_description.data_level": "derived"}
+    response = docdb_client.retrieve_docdb_records(
+        filter_query=filter_query,
+    )
+    return response
+
+def get_duration_from_session(session_entry):
+    """"""
+    if session_entry["session"] is None:
+        return np.nan
+    elif session_entry["session"]["session_start_time"] is None or session_entry["session"]["session_end_time"] is None:
+        return np.nan
+    else:
+        start = datetime.fromisoformat(session_entry["session"]["session_start_time"].replace('Z', '+00:00'))
+        end = datetime.fromisoformat(session_entry["session"]["session_end_time"].replace('Z', '+00:00'))
+        duration = end - start
+        return duration.seconds
+
+def get_unique_sessions_with_dates(processed_data):
+    """
+    Extract unique sessions by raw asset name with their creation dates.
+    For each raw asset name, get the earliest creation date.
+    
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns: raw_asset_name, created_date
+    """
+    sessions_data = []
+    for entry in processed_data:
+        # Extract raw asset name (remove "_sorted" suffix)
+        raw_name = entry["data_description"]["name"][:entry["data_description"]["name"].find("_sorted")]
+        if raw_name == "ecephys_session":
+            continue
+
+        # Parse creation date (remove timezone info for consistency)
+        created_date = datetime.fromisoformat(entry["created"].replace('Z', '+00:00')).replace(tzinfo=None)
+        
+        sessions_data.append({
+            'raw_asset_name': raw_name,
+            'created_date': created_date,
+            'full_name': entry["data_description"]["name"],
+            'duration': get_duration_from_session(entry),
+            'entry': entry
+        })
+    
+    # Convert to DataFrame
+    df = pd.DataFrame(sessions_data)
+    
+    # Get the earliest creation date for each raw asset name
+    # (in case there are multiple sorted versions of the same raw data)
+    # For each raw_asset_name, get the row with the earliest created_date (keep full_name)
+    idx = df.groupby('raw_asset_name')['created_date'].idxmax()
+    unique_sessions = df.loc[idx].reset_index(drop=True)
+    
+    return unique_sessions
+
+
+def parse_curation_notes(curation_notes):
+    """
+    
+    """
+    curation_output = {}
+    qc_stats = {}
+
+    if "Passing default QC" in curation_notes or \
+        ("NOISE" in curation_notes and "SUA" in curation_notes and "MUA" in curation_notes):
+        # Parse lines like "Passing default QC: 90/204"
+        # fix missin linebreak
+        curation_notes = curation_notes.replace("Noise", "\nNoise")
+        for line in curation_notes.splitlines():
+            
+            match = re.match(r'\s*([A-Za-z ]+):\s*(\d+)\s*/\s*(\d+)', line)
+            if match:
+                key = match.group(1).strip().lower().replace(" ", "_")
+                value = int(match.group(2))
+                total = int(match.group(3))
+                qc_stats[key] = value
+                # Optionally, store total as well if needed: qc_stats[key + "_total"] = total
+                if key == "passing_default_qc":
+                    qc_stats["total_units"] = total
+                    qc_stats["failing_qc"] = total - value
+        if "noise" not in qc_stats and "sua" in qc_stats and "mua" in qc_stats:
+            qc_stats["noise"] = total - qc_stats.get("sua", 0) - qc_stats.get("mua", 0)
+        if "mua" in qc_stats and "sua" in qc_stats:
+            qc_stats["neural"] = qc_stats.get("sua", 0) + qc_stats.get("mua", 0)
+        # Map keys to output names
+        key_map = {
+            "passing_default_qc": "passing_qc",
+            "failing_qc": "failing_qc",
+            "noise": "noise_units",
+            "sua": "sua_units",
+            "mua": "mua_units",
+            "neural": "neural_units",
+            "total_units": "total_units"
+        }
+    elif "passing default qc" in curation_notes.lower():
+        # old format
+        # Look for a line like "200/435 passing default QC."
+        match = re.search(r'(\d+)\s*/\s*(\d+)\s*passing default QC', curation_notes, re.IGNORECASE)
+        if match:
+            passing = int(match.group(1))
+            total_units = int(match.group(2))
+            qc_stats["passing_default_qc"] = passing
+            qc_stats["total_units"] = total_units
+            qc_stats["failing_qc"] = total_units - passing
+        # Map keys to output names
+        key_map = {
+            "passing_default_qc": "passing_qc",
+            "failing_qc": "failing_qc",
+            "total_units": "total_units"
+        }
+
+    for k, v in key_map.items():
+        if k in qc_stats:
+            curation_output[v] = qc_stats[k]
+    return curation_output

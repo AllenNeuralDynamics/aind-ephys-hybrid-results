@@ -9,3 +9,10 @@ jupyter nbconvert \
 	--FilesWriter.build_directory=../results \
 	--execute generate-results.ipynb
 
+jupyter nbconvert \
+	--to 'html' \
+	--ExecutePreprocessor.allow_errors=True \
+	--ExecutePreprocessor.timeout=-1 \
+	--FilesWriter.build_directory=../results \
+	--execute pipeline-stats.ipynb
+
