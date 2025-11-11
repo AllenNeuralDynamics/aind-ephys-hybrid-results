@@ -8,7 +8,7 @@ from datetime import datetime
 from itertools import combinations
 from functools import reduce
 
-def plot_performance_curves(df_units, performance_metrics, sorting_cases, colors, axes, lw=2.5, ls="-", alpha=1):
+def plot_performance_curves(df_units, performance_metrics, sorting_cases, colors, axes, sort_by=None, lw=2.5, ls="-", alpha=1):
     for i, metric in enumerate(performance_metrics):
         df_units_sorted = df_units.sort_values(["sorting_case", metric], ascending=False)
         unit_indices = np.zeros(len(df_units_sorted), dtype=int)
@@ -25,7 +25,41 @@ def plot_performance_curves(df_units, performance_metrics, sorting_cases, colors
         ax.set_xlabel("")
     return df_units_sorted
 
-def plot_aggregated_results(dataframes, colors, include_string_in_pair=None, perf_color="grey", figsize=(20, 5)):
+def plot_performance_by_metric(df_units, quality_metric, performance_metrics, sorting_cases, colors, axes, with_sigmoid_fit=True, show_average_by_bin=False, alpha=0.3, num_bin_average=20):
+    for i, metric in enumerate(performance_metrics):
+        ax = axes[i]
+        sns.scatterplot(df_units, x=quality_metric, y=metric, hue="sorting_case", palette=colors, alpha=alpha, ax=ax)
+        if i > 0:
+           ax.legend().remove()
+            
+
+        for case in sorting_cases:
+                
+            df_units_case = df_units.query(f"sorting_case == '{case}'")
+            x = df_units_case[quality_metric].values
+            y = df_units_case[metric].values
+            color = colors[case]
+            if with_sigmoid_fit:
+                from spikeinterface.benchmark.benchmark_tools import sigmoid, fit_sigmoid
+
+                max_val = np.max(x)
+                xfit = np.linspace(0, max_val, 100)
+                popt = fit_sigmoid(x, y, p0=None)
+                fit_y = sigmoid(xfit, *popt)
+                ax.plot(xfit, fit_y, color=color)
+
+            if show_average_by_bin:
+                from scipy.stats import binned_statistic
+    
+                bins = np.percentile(x, np.linspace(0, 100, num_bin_average + 1))
+                bin_centers = bins[:-1] + np.diff(bins) / 2.0
+                all_average = []
+                average, bins, _ = binned_statistic(x, y, statistic="mean", bins=bins)
+                ax.plot(bin_centers, average, color=color, lw=2)
+
+        ax.set_xlabel("")
+
+def plot_aggregated_results(dataframes, colors, include_string_in_pair=None, perf_color="grey", plot_metrics=False, figsize=(20, 5)):
     figs = {}
     # Aggregated results
     performance_metrics = ["accuracy", "precision", "recall"]
@@ -39,12 +73,18 @@ def plot_aggregated_results(dataframes, colors, include_string_in_pair=None, per
     sorting_cases = list(colors.keys())
     
     fig_perf, axes = plt.subplots(ncols=len(performance_metrics), figsize=figsize, sharey=True)
-
     df_units_sorted = plot_performance_curves(df_units, performance_metrics, sorting_cases, colors, axes, lw=2.5, ls="-")
-
     sns.despine(fig_perf)
     num_hybrid_units = np.max(df_units_sorted.groupby("sorting_case")["sorting_case"].count())
-    
+
+    if plot_metrics:
+        fig_snr, axes = plt.subplots(ncols=len(performance_metrics), figsize=figsize, sharey=True)
+        plot_performance_by_metric(df_units, "snr", performance_metrics, sorting_cases, colors, axes, show_average_by_bin=True, with_sigmoid_fit=False)
+        sns.despine(fig_snr)
+        fig_amps, axes = plt.subplots(ncols=len(performance_metrics), figsize=figsize, sharey=True)
+        plot_performance_by_metric(df_units, "amplitude", performance_metrics, sorting_cases, colors, axes, show_average_by_bin=True, with_sigmoid_fit=False)
+        sns.despine(fig_amps)
+
     # pairwise metric scatter
     figs_pair = {}
     dfs_merged = {}
@@ -84,6 +124,9 @@ def plot_aggregated_results(dataframes, colors, include_string_in_pair=None, per
 
     figs["performance"] = fig_perf
     figs.update(figs_pair)
+    if plot_metrics:
+        figs["snr"] = fig_snr
+        figs["amplitude"] = fig_snr
     return figs, dfs_merged
 
 
