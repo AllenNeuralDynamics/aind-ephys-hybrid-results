@@ -1,3 +1,3 @@
-# Cloud-compatible pipelines for processing and evaluating large-scale electrophysiology data
+# Efficient and reproducible pipelines for spike sorting large-scale electrophysiology data
 
-This capsule includes the processed data and notebooks to generate the figure panels for the paper "Cloud-compatible pipelines for processing and evaluating large-scale electrophysiology data", by Alessio Buccino, David Feng, Karel Svoboda, and Josh Siegle.
+This capsule includes the processed data and notebooks to generate the figure panels for the paper "Efficient and reproducible pipelines for spike sorting large-scale electrophysiology data", by Alessio Buccino, Arjun Sridhar, David Feng, Karel Svoboda, and Josh Siegle.
